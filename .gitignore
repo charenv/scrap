@@ -1,0 +1,11 @@
+# Datos cosechados: se regeneran corriendo cosecha.py y pesan de más para git
+salida/
+
+# Registros de corrida
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
