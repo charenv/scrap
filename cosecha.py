@@ -153,6 +153,8 @@ def main():
     # mas rapido hay que repartir por maquinas, no por hilos.
     ap.add_argument("--workers", type=int, default=1, help="sesiones simultaneas (1: no subir)")
     ap.add_argument("--pausa", type=float, default=1.2, help="segundos entre peticiones")
+    ap.add_argument("--solo-juntar", action="store_true",
+                    help="rehace los Excel con lo cosechado hasta ahora, sin pedir nada al sitio")
     args = ap.parse_args()
 
     if args.especialidad:
@@ -167,6 +169,25 @@ def main():
                  "Contencioso Adm. Previsional", "Civil", "Contencioso Administrativo",
                  "Contencioso Adm. Laboral", "Laboral", "Penal"]
         objetivo = [e for e in orden if e in ESPECIALIDADES]
+
+    # Rehacer los Excel con lo que haya en disco, sin tocar el sitio. Sirve para
+    # mirar el avance a mitad de una corrida larga sin interferir con ella.
+    if args.solo_juntar:
+        todas = []
+        for especialidad in objetivo:
+            filas = juntar(especialidad)
+            todas.extend(filas)
+            if filas:
+                con_link = sum(1 for f in filas if f["Link Resolucion"])
+                log(f"  {especialidad:36} {len(filas):>7} filas  {con_link:>7} con link")
+        if len(objetivo) > 1 and todas:
+            for persona, suyas in REPARTO.items():
+                filas = [f for f in todas if f["Especialidad"] in suyas]
+                if filas:
+                    escribir_excel(filas, SALIDA / f"{persona}-consolidado.xlsx")
+            escribir_excel(todas, SALIDA / "todo-corte-suprema.xlsx")
+        log(f"\nTOTAL: {len(todas)} resoluciones")
+        return
 
     # Cuantas paginas tiene cada una (una peticion por especialidad).
     log("midiendo...")

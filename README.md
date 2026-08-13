@@ -29,8 +29,9 @@ python3 cosecha.py --especialidad Penal
 Es reanudable: si se corta, relanza el mismo comando y sigue por donde iba.
 
 ```bash
-tail -f cosecha.log      # ver avance
-grep '!!' cosecha.log    # ver problemas; si no sale nada, todo limpio
+tail -f cosecha.log             # ver avance
+grep '!!' cosecha.log           # ver problemas; si no sale nada, todo limpio
+python3 cosecha.py --solo-juntar  # Excel con lo que haya, sin tocar el sitio
 ```
 
 ## Los archivos
