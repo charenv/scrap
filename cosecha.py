@@ -33,6 +33,8 @@ from juris_excel import SALIDA, escribir_excel, slug
 
 TRAMO = 25  # paginas por tramo: corto, para no perder trabajo si se corta
 CORTE_FALLOS = 8  # fallos seguidos dentro de un tramo antes de abandonarlo
+INTENTOS_MEDIR = 3  # veces que se pide la pagina 1 antes de dar la medicion por perdida
+ESPERA_MEDIR = 5.0  # segundos entre intentos de medicion
 
 _imprimir = threading.Lock()
 
@@ -61,6 +63,44 @@ def tramos_de(especialidad, total_paginas):
                 pass  # fichero a medias de una corrida cortada: se rehace
         pendientes.append((inicio, fin))
     return pendientes
+
+
+def medir_paginas(cliente, especialidad):
+    """Cuantas paginas tiene una especialidad. None si no se pudo averiguar.
+
+    El sitio devuelve a ratos un 200 con el HTML incompleto, sin el contador de
+    resultados. Eso no lanza excepcion: num_paginas() devuelve None y, si se
+    trata como 0, la especialidad encola cero tramos y se salta en silencio,
+    indistinguible de una ya terminada. Por eso se reintenta, y por eso el None
+    se propaga en vez de colapsarse a 0.
+    """
+    for intento in range(1, INTENTOS_MEDIR + 1):
+        try:
+            html = cliente.pagina_con_reintentos(1, primera=True)
+        except Exception as e:
+            motivo = f"{type(e).__name__}: {e}"
+        else:
+            paginas = jp.num_paginas(html)
+            if paginas is not None:
+                return paginas
+            motivo = "el HTML no traia el total de resultados"
+
+        if intento < INTENTOS_MEDIR:
+            log(f"    {especialidad}: no se pudo medir ({motivo}), "
+                f"reintento {intento}/{INTENTOS_MEDIR - 1}")
+            time.sleep(ESPERA_MEDIR)
+
+    return None
+
+
+def aviso_sin_medir(especialidades):
+    """Deja constancia de las que no se pudieron medir. Nadie deberia perderselo."""
+    log("\n" + "!" * 68)
+    log("!! NO SE PUDIERON MEDIR, NO ESTAN COSECHADAS:")
+    for especialidad in especialidades:
+        log(f"!!   {especialidad}")
+    log("!! Relanza el mismo comando: es reanudable y las tomara.")
+    log("!" * 68)
 
 
 def cosechar_tramo(cliente, especialidad, inicio, fin):
@@ -170,6 +210,11 @@ def main():
                  "Contencioso Adm. Laboral", "Laboral", "Penal"]
         objetivo = [e for e in orden if e in ESPECIALIDADES]
 
+    # todo-corte-suprema.xlsx solo tiene sentido cuando la corrida abarca las 12.
+    # Con --persona o --especialidad, "todas" es un trozo del corpus y escribirlo
+    # con ese nombre invita a entregar un cuarto del trabajo creyendolo entero.
+    corpus_completo = not args.persona and not args.especialidad
+
     # Rehacer los Excel con lo que haya en disco, sin tocar el sitio. Sirve para
     # mirar el avance a mitad de una corrida larga sin interferir con ella.
     if args.solo_juntar:
@@ -185,7 +230,8 @@ def main():
                 filas = [f for f in todas if f["Especialidad"] in suyas]
                 if filas:
                     escribir_excel(filas, SALIDA / f"{persona}-consolidado.xlsx")
-            escribir_excel(todas, SALIDA / "todo-corte-suprema.xlsx")
+            if corpus_completo:
+                escribir_excel(todas, SALIDA / "todo-corte-suprema.xlsx")
         log(f"\nTOTAL: {len(todas)} resoluciones")
         return
 
@@ -193,24 +239,26 @@ def main():
     log("midiendo...")
     cola = queue.Queue()
     total_paginas = 0
+    sin_medir = []
     for especialidad in objetivo:
         cliente = ClienteJuris(especialidad=especialidad, pausa=args.pausa)
-        try:
-            # Con reintentos: el sitio devuelve 500 a ratos y no vale la pena
-            # tirar la corrida entera solo por contar paginas.
-            html = cliente.pagina_con_reintentos(1, primera=True)
-        except Exception as e:
-            log(f"  {especialidad:36} no se pudo medir ({type(e).__name__}), se salta")
+        paginas = medir_paginas(cliente, especialidad)
+        if paginas is None:
+            sin_medir.append(especialidad)
+            log(f"  {especialidad:36} {'??':>5} paginas  NO SE PUDO MEDIR, queda pendiente")
             continue
-        paginas = jp.num_paginas(html) or 0
         pendientes = tramos_de(especialidad, paginas)
         total_paginas += sum(f - i + 1 for i, f in pendientes)
         for inicio, fin in pendientes:
             cola.put((especialidad, inicio, fin))
         log(f"  {especialidad:36} {paginas:>5} paginas  {len(pendientes):>3} tramos pendientes")
 
+    if sin_medir:
+        aviso_sin_medir(sin_medir)
+
     if cola.empty():
-        log("\nno queda nada pendiente")
+        log("\nno queda nada pendiente de lo que se pudo medir"
+            if sin_medir else "\nno queda nada pendiente")
     else:
         estimado = total_paginas * 3.0 / args.workers / 3600
         log(f"\n{total_paginas} paginas en {cola.qsize()} tramos, "
@@ -241,8 +289,20 @@ def main():
             filas = [f for f in todas if f["Especialidad"] in suyas]
             if filas:
                 escribir_excel(filas, SALIDA / f"{persona}-consolidado.xlsx")
-        escribir_excel(todas, SALIDA / "todo-corte-suprema.xlsx")
-        log(f"\nTOTAL: {len(todas)} resoluciones -> salida/todo-corte-suprema.xlsx")
+        if corpus_completo:
+            escribir_excel(todas, SALIDA / "todo-corte-suprema.xlsx")
+            log(f"\nTOTAL: {len(todas)} resoluciones -> salida/todo-corte-suprema.xlsx")
+        else:
+            log(f"\nTOTAL de esta parte: {len(todas)} resoluciones")
+            log("(es tu parte del reparto, no el corpus entero: manda salida/ a charen)")
+
+    # Repetido al final a proposito: tras horas de corrida, el aviso de la fase
+    # de medicion ya se perdio scroll arriba. El codigo de salida != 0 es para
+    # que se note aunque nadie lea.
+    if sin_medir:
+        aviso_sin_medir(sin_medir)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
