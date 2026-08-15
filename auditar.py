@@ -113,7 +113,10 @@ def main():
             t.unlink()
         print(f"\nBorrados. Relanza tu cosecha de siempre y los rehara.")
     else:
-        print(f"\nPara taparlos:  python3 auditar.py --borrar")
+        # python3 en Linux, python.exe en Windows: que el mensaje sea copiable
+        # tal cual en la maquina donde se esta ejecutando.
+        piton = Path(sys.executable).name
+        print(f"\nPara taparlos:  {piton} auditar.py --borrar")
         print(f"y despues relanza tu cosecha de siempre.")
     return 1
 
