@@ -25,7 +25,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from juris_client import ESPECIALIDADES
+from juris_client import ESPECIALIDADES, REPARTO
 from juris_excel import COLUMNAS, SALIDA, slug
 
 TRAMO = 25
@@ -106,6 +106,11 @@ def revisar(filas):
     return informe
 
 
+def ya_cosechada(esp):
+    """Si esa especialidad ya tiene tramos propios en salida/."""
+    return any((SALIDA / slug(esp) / "tramos").glob("p*.json"))
+
+
 def escribir_tramos(esp, datos):
     """Deja las filas como tramos, con el formato que espera el resto del proyecto."""
     carpeta = SALIDA / slug(esp) / "tramos"
@@ -137,6 +142,10 @@ def main():
     ap.add_argument("ficheros", nargs="+", help="los .xlsx a importar")
     ap.add_argument("--escribir", action="store_true",
                     help="escribe los tramos en salida/ (sin esto solo revisa)")
+    ap.add_argument("--persona", choices=sorted(REPARTO),
+                    help="importa solo las especialidades de esa persona")
+    ap.add_argument("--forzar", action="store_true",
+                    help="importa aunque la especialidad ya tenga tramos cosechados")
     args = ap.parse_args()
 
     todas, problemas = [], []
@@ -161,6 +170,20 @@ def main():
         return 1
 
     informe = revisar(todas)
+
+    # Un Excel puede traer especialidades que no son las que se quieren meter:
+    # los consolidados llevan las cuatro de su dueno, y un glob suelto acaba
+    # mezclando los de todo el equipo.
+    if args.persona:
+        suyas = set(REPARTO[args.persona])
+        fuera = sorted(e for e in informe if e not in suyas)
+        if fuera:
+            print(f"\nNo son de {args.persona}, las ignoro: {', '.join(fuera)}")
+        informe = {e: d for e, d in informe.items() if e in suyas}
+        if not informe:
+            print(f"\nNinguna de las especialidades de {args.persona} en esos ficheros.")
+            return 1
+
     print(f"\n{'=' * 60}")
 
     for esp in sorted(informe):
@@ -203,6 +226,13 @@ def main():
     for esp, d in sorted(informe.items()):
         if not d["conocida"]:
             print(f"  {esp}: saltada, no es del proyecto")
+            continue
+        # Lo cosechado aqui vale mas que un Excel: viene con los checkpoints y
+        # ha pasado por auditar.py. Un consolidado viejo de la propia maquina
+        # trae los numeros de mitad de la corrida, asi que sobrescribir seria
+        # cambiar datos buenos por datos peores sin enterarse.
+        if ya_cosechada(esp) and not args.forzar:
+            print(f"  {esp}: SALTADA, ya tiene tramos cosechados (--forzar para pisarlos)")
             continue
         n = escribir_tramos(esp, d)
         print(f"  {esp}: {n} tramos escritos en salida/{slug(esp)}/tramos/")
