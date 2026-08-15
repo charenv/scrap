@@ -66,6 +66,7 @@ def main():
         return 1
 
     a_borrar = []
+    con_problemas = []
     total_filas = total_faltan = 0
 
     for carpeta in sorted(SALIDA.iterdir()):
@@ -82,6 +83,8 @@ def main():
         total_faltan += len(faltan)
 
         estado = "OK" if not faltan and not incompletos and not sin_link else "REVISAR"
+        if estado == "REVISAR":
+            con_problemas.append(carpeta.name)
         print(f"\n{carpeta.name}  [{estado}]")
         print(f"  {len(uuids)} resoluciones unicas en {len(por_pagina)} paginas (hasta la {ultima})")
 
@@ -99,9 +102,20 @@ def main():
     print(f"\n{'=' * 60}")
     print(f"TOTAL: {total_filas} resoluciones unicas")
 
-    if not a_borrar:
+    # El veredicto sale de si se encontraron huecos, no de cuantos ficheros hay
+    # que borrar. Son dos preguntas distintas: un tramo con hueco puede no estar
+    # en disco (lo borro una pasada anterior y la cosecha aun no lo ha rehecho),
+    # y entonces no hay nada que borrar pero el hueco sigue ahi.
+    if not con_problemas:
         print("Sin huecos. Esto esta completo.")
         return 0
+
+    print(f"\nCon problemas: {', '.join(con_problemas)}")
+
+    if not a_borrar:
+        print("Los tramos que faltan ni siquiera estan en disco: o la cosecha")
+        print("los esta rehaciendo ahora mismo, o hay que relanzarla.")
+        return 1
 
     a_borrar = sorted(set(a_borrar))
     print(f"\n{len(a_borrar)} tramos hay que rehacer ({total_faltan} paginas):")
