@@ -111,6 +111,20 @@ def cosechar_tramo(cliente, especialidad, inicio, fin):
         try:
             html = cliente.pagina_con_reintentos(numero)
         except Exception as e:
+            nuevas = None
+        else:
+            nuevas = jp.parsear_resultados(html, especialidad, numero)
+            mostradas = jp.contar_paneles(html)
+            if mostradas != len(nuevas):
+                log(f"    !! {especialidad} p{numero}: {mostradas} en el HTML, {len(nuevas)} parseadas")
+
+        # Una pagina vacia cuenta como fallo. Ninguna pagina del rango puede
+        # estar vacia de verdad: los tramos se cortan sobre el total real, asi
+        # que hasta la ultima trae al menos una fila. Cuando el sitio pierde la
+        # sesion devuelve un listado sin resultados con un 200 perfectamente
+        # valido, y aceptarlo marcaba el tramo como completo con un hueco
+        # dentro: paginas que nadie volvia a pedir porque constaban por hechas.
+        if not nuevas:
             fallidas.append(numero)
             seguidas += 1
             if seguidas >= CORTE_FALLOS:
@@ -118,12 +132,8 @@ def cosechar_tramo(cliente, especialidad, inicio, fin):
                 fallidas.extend(range(numero + 1, fin + 1))
                 break
             continue
-        seguidas = 0
 
-        nuevas = jp.parsear_resultados(html, especialidad, numero)
-        mostradas = jp.contar_paneles(html)
-        if mostradas != len(nuevas):
-            log(f"    !! {especialidad} p{numero}: {mostradas} en el HTML, {len(nuevas)} parseadas")
+        seguidas = 0
         filas.extend(nuevas)
 
     return filas, fallidas
