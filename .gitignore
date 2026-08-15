@@ -9,3 +9,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# Variantes con punto final: *.log no las coge, y Windows no admite
+# nombres acabados en punto, asi que rompen el checkout ahi.
+cosecha.log*
