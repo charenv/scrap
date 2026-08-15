@@ -89,13 +89,21 @@ def revisar(filas):
 
     informe = {}
     for esp, suyas in por_esp.items():
-        paginas = collections.Counter(f["Pagina"] for f in suyas)
-        uuids = {f["uuid"] for f in suyas}
+        # Una resolucion, una fila. Los duplicados llegan solos: el mismo Excel
+        # descargado varias veces, o un consolidado que se solapa con los
+        # sueltos. Se avisa de cuantos habia, pero se guarda uno de cada.
+        vistos, unicas = set(), []
+        for fila in suyas:
+            if fila["uuid"] not in vistos:
+                vistos.add(fila["uuid"])
+                unicas.append(fila)
+
+        paginas = collections.Counter(f["Pagina"] for f in unicas)
         ultima = max(paginas) if paginas else 0
         informe[esp] = {
-            "filas": suyas,
-            "unicas": len(uuids),
-            "duplicadas": len(suyas) - len(uuids),
+            "filas": unicas,
+            "unicas": len(unicas),
+            "duplicadas": len(suyas) - len(unicas),
             "paginas": len(paginas),
             "ultima": ultima,
             "faltan": sorted(set(range(1, ultima + 1)) - set(paginas)),
