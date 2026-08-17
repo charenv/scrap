@@ -33,6 +33,7 @@ from juris_excel import SALIDA, escribir_excel, slug
 
 TRAMO = 25  # paginas por tramo: corto, para no perder trabajo si se corta
 CORTE_FALLOS = 8  # fallos seguidos dentro de un tramo antes de abandonarlo
+TAMANO_PAGINA = 10  # el buscador sirve 10 resoluciones por pagina, salvo la ultima
 INTENTOS_MEDIR = 3  # veces que se pide la pagina 1 antes de dar la medicion por perdida
 ESPERA_MEDIR = 5.0  # segundos entre intentos de medicion
 
@@ -104,8 +105,15 @@ def aviso_sin_medir(especialidades):
 
 
 def cosechar_tramo(cliente, especialidad, inicio, fin):
-    """Recorre un tramo de paginas. Devuelve (filas, paginas_fallidas)."""
-    filas, fallidas, seguidas = [], [], 0
+    """Recorre un tramo de paginas. Devuelve (filas, fallidas, incompletas).
+
+    Una pagina vacia ya cuenta como fallo. Pero tambien las hay a medias: el
+    sitio devuelve 9 de 10 resoluciones con un 200 valido, y esas si se
+    aceptaban. Asi se perdieron 537 resoluciones de Civil sin dejar rastro,
+    porque la cosecha termina "bien" igual, solo que con menos filas. Se anotan
+    para poder reclamarlas despues.
+    """
+    filas, fallidas, incompletas, seguidas = [], [], [], 0
 
     for numero in range(inicio, fin + 1):
         try:
@@ -134,9 +142,17 @@ def cosechar_tramo(cliente, especialidad, inicio, fin):
             continue
 
         seguidas = 0
+        if len(nuevas) < TAMANO_PAGINA:
+            incompletas.append(numero)
+            log(f"    !! {especialidad} p{numero}: {len(nuevas)} filas de "
+                f"{TAMANO_PAGINA} (normal solo si es la ultima del listado)")
+        descuadradas = [f for f in nuevas if "uuid_ficha" in f]
+        if descuadradas:
+            log(f"    !! {especialidad} p{numero}: {len(descuadradas)} panel(es) con "
+                f"la ficha apuntando a otro uuid que el PDF; leidos del HTML visible")
         filas.extend(nuevas)
 
-    return filas, fallidas
+    return filas, fallidas, incompletas
 
 
 def worker(nombre, cola, pausa):
@@ -149,18 +165,26 @@ def worker(nombre, cola, pausa):
         try:
             cliente = ClienteJuris(especialidad=especialidad, pausa=pausa)
             cliente.pagina_con_reintentos(1, primera=True)
-            filas, fallidas = cosechar_tramo(cliente, especialidad, inicio, fin)
+            filas, fallidas, incompletas = cosechar_tramo(
+                cliente, especialidad, inicio, fin)
 
             destino = ruta_tramo(especialidad, inicio, fin)
             destino.parent.mkdir(parents=True, exist_ok=True)
             destino.write_text(
                 json.dumps(
-                    {"completo": not fallidas, "fallidas": fallidas, "filas": filas},
+                    {
+                        "completo": not fallidas,
+                        "fallidas": fallidas,
+                        "incompletas": incompletas,
+                        "filas": filas,
+                    },
                     ensure_ascii=False,
                 ),
                 encoding="utf-8",
             )
             marca = "" if not fallidas else f"  ({len(fallidas)} paginas fallidas)"
+            if incompletas:
+                marca += f"  ({len(incompletas)} paginas incompletas)"
             log(f"  [{nombre}] {especialidad} p{inicio}-{fin}: {len(filas)} filas{marca}")
 
         except Exception as e:

@@ -181,15 +181,23 @@ def parsear_resultados(html_texto, especialidad="", pagina=0):
         if ficha:
             datos = _payload_a_dict(ficha.get("onclick", ""))
 
-        if datos and "uuid" in datos:
+        # El uuid sale del enlace de descarga y los campos del payload de "Ver
+        # ficha": son dos sitios distintos del mismo panel. Si no coinciden, el
+        # panel esta mezclando dos resoluciones y el payload no es de fiar, asi
+        # que se cae al HTML visible, que si pertenece a este panel con certeza.
+        descuadre = bool(datos) and datos.get("uuid") not in (None, uuid)
+
+        if datos and "uuid" in datos and not descuadre:
             fila = {col: (datos.get(k) or "").strip() for k, col in CAMPOS.items()}
             fila["Origen"] = "json"
         else:
             fila = {col: "" for col in CAMPOS.values()}
             fila.update({k: v for k, v in _desde_html(panel).items()})
-            fila["Origen"] = "html"
+            fila["Origen"] = "html-descuadre" if descuadre else "html"
 
         fila["uuid"] = uuid
+        if descuadre:
+            fila["uuid_ficha"] = datos.get("uuid")
         fila["Link Resolucion"] = f"{BASE}/jurisprudenciaweb/ServletDescarga?uuid={uuid}"
         fila["Especialidad"] = especialidad
         fila["Pagina"] = pagina
