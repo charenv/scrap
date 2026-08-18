@@ -20,6 +20,13 @@ OK, MAL, AVISO = "  [ok]   ", "  [FALTA]", "  [aviso]"
 # Espacio para el año mas grande de cualquier reparto, con margen.
 ESPACIO_MINIMO_GB = 15
 
+# Como es el corpus bueno. Hay cuatro Excel con nombres parecidos y dos de ellos
+# se quedaron en 208 641 filas, sin las 537 de Civil que se recuperaron despues.
+# Trabajar con el equivocado no da ningun error: simplemente faltarian 537
+# resoluciones al juntarlo todo, y nadie se enteraria.
+FILAS_ESPERADAS = 209_180
+CIVIL_ESPERADO = 14_735
+
 
 def como_definir(var, ejemplo):
     if WIN:
@@ -126,16 +133,44 @@ def main():
         print(f"         un año de 2017+ ocupa ~2,5 GB y uno anterior ~18 GB")
         print(f"         puedes empezar igual, pero tendras que ir subiendo y liberando")
 
-    # El manifiesto es la fuente de todo: si se lee, el resto encaja.
+    # El manifiesto y el Excel son la fuente de todo: si se leen y traen las
+    # cifras que tocan, el resto encaja.
     if bien:
-        print("\nMANIFIESTO")
+        print("\nCONTENIDO")
         try:
             import pandas as pd
-            m = pd.read_csv(os.environ["CORPUS_MANIFIESTO"], usecols=["Anio", "uuid"])
-            print(f"{OK} {len(m):,} resoluciones, años {m.Anio.min()}-{m.Anio.max()}")
+            m = pd.read_csv(os.environ["CORPUS_MANIFIESTO"],
+                            usecols=["Anio", "uuid", "Especialidad"])
+            civil = int((m.Especialidad == "Civil").sum())
+            if len(m) == FILAS_ESPERADAS and civil == CIVIL_ESPERADO:
+                print(f"{OK} manifiesto: {len(m):,} resoluciones, "
+                      f"años {m.Anio.min()}-{m.Anio.max()}")
+            else:
+                bien = False
+                print(f"{MAL} manifiesto equivocado: {len(m):,} filas "
+                      f"(deberian ser {FILAS_ESPERADAS:,}), Civil {civil:,} "
+                      f"(deberian ser {CIVIL_ESPERADO:,})")
+                print("         bajate el de la carpeta compartida de Drive: hay "
+                      "versiones antiguas a las que")
+                print("         les faltan 537 resoluciones de Civil y no dan "
+                      "ningun error, solo faltan.")
             if m.uuid.nunique() < len(m) - 5:
-                print(f"{AVISO} solo {m.uuid.nunique():,} uuid distintos: "
-                      f"¿es el manifiesto compartido?")
+                print(f"{AVISO} solo {m.uuid.nunique():,} uuid distintos")
+
+            x = pd.read_excel(os.environ["CORPUS_EXCEL"], engine="openpyxl",
+                              usecols=["Especialidad", "Archivo PDF"])
+            civil_x = int((x.Especialidad == "Civil").sum())
+            if len(x) == FILAS_ESPERADAS and civil_x == CIVIL_ESPERADO:
+                print(f"{OK} excel: {len(x):,} filas, con las rutas de los PDFs")
+            else:
+                bien = False
+                print(f"{MAL} excel equivocado: {len(x):,} filas, Civil {civil_x:,}")
+                print("         tiene que ser todo-corte-suprema-COMPLETO-LIMPIO.xlsx")
+        except KeyError:
+            bien = False
+            print(f"{MAL} al excel le falta la columna 'Archivo PDF': es una "
+                  f"version sin las rutas")
+            print("         tiene que ser todo-corte-suprema-completo-LIMPIO.xlsx")
         except Exception as e:
             bien = False
             print(f"{MAL} no se pudo leer: {type(e).__name__}: {e}")
