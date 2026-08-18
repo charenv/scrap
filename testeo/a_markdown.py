@@ -244,7 +244,11 @@ def main():
             print(f"  {s:<26} {n/hechos*100:5.1f}%")
 
     if sin_texto:
-        pendiente = args.salida / "necesitan-ocr.csv"
+        # Un fichero por año: el corpus se procesa año a año y un unico
+        # necesitan-ocr.csv se sobrescribia en cada vuelta, dejando solo el
+        # ultimo. Ademas asi los tres pueden juntar sus carpetas sin pisarse.
+        sufijo = f"-{args.anio}" if args.anio else ""
+        pendiente = args.salida / f"necesitan-ocr{sufijo}.csv"
         pendiente.parent.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(sin_texto).to_csv(pendiente, index=False)
         print(f"\n{len(sin_texto):,} pendientes de OCR -> {pendiente}")
