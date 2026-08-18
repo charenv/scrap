@@ -61,6 +61,22 @@ setx CORPUS_EXCEL "D:\datos\todo-corte-suprema-completo-limpio.xlsx"
 
 Cierra y vuelve a abrir la terminal para que las coja.
 
+**Esas rutas son ejemplos: pon las tuyas.** `CORPUS_BASE` es donde quieres que
+se guarde el corpus (se crea sola); las otras dos apuntan a donde te bajaste los
+ficheros de Drive. En Windows, la forma rapida de sacar la ruta exacta es
+*Shift + clic derecho* sobre el fichero → *Copiar como ruta de acceso*.
+
+### Comprobar que todo esta listo
+
+```bash
+python3 comprobar.py
+```
+
+Repasa las rutas, los paquetes, las herramientas externas y el espacio libre, y
+dice exactamente que falta y como arreglarlo. Correlo **antes** de lanzar el
+primer lote: casi todos los fallos de arranque son una variable mal puesta o
+poppler fuera del PATH, y es mejor descubrirlo ahora que a las tres horas.
+
 El manifiesto y el Excel están en la carpeta compartida de Drive. Son los mismos
 para los tres: **no los regeneres**, o las rutas de los ficheros dejarían de
 coincidir entre máquinas.
@@ -203,6 +219,7 @@ python3 lote.py --estado
 | `a_markdown.py` | Limpia, secciona y escribe el markdown con frontmatter. |
 | `ocr.py` | Capa de texto sobre los escaneos. |
 | `avance.py` | Progreso del lote en curso. |
+| `comprobar.py` | Revisa que la maquina este lista. Correlo el primero. |
 
 Y los de charen, que no hacen falta en el día a día:
 
