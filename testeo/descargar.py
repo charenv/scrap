@@ -10,7 +10,7 @@ Ese techo son 1160 PDFs/hora por IP: el corpus entero, 209 179 documentos, son
 unos 7,5 dias seguidos. Repartirlo entre varias IPs es lo unico que lo acorta.
 
 Todo lo ya bajado se salta, asi que se puede cortar y retomar sin perder nada.
-Los fallos quedan en fallos.csv para reintentarlos aparte.
+Los fallos quedan en fallos-<año>.csv para reclamarlos despues.
 
 Uso:
     python3 descargar.py --destino /ruta/pdfs
@@ -41,6 +41,12 @@ MANIFIESTO = Path(os.environ.get(
     "/home/charen/corpus-corte-suprema-2026-08-15/scrap/salida/manifiesto-pdfs.csv"))
 CABECERAS = {"User-Agent": "Mozilla/5.0"}
 MINIMO = 1000  # bytes: por debajo de esto no es un PDF real aunque lo parezca
+
+# Fallos seguidos antes de abandonar. Sin esto una caida de internet no para
+# nada: cada documento gasta 4 intentos de hasta 90 s, se anota como fallo y se
+# pasa al siguiente, asi toda la noche. Como todo es reanudable, parar y
+# relanzar sale siempre mas barato que seguir arando en seco.
+CORTE_FALLOS = 10
 
 
 def sesion_nueva():
@@ -90,12 +96,28 @@ def main():
     if args.orden != "manifiesto":
         m = m.sort_values("Anio", ascending=args.orden == "antiguo", kind="stable")
 
-    fallos_f = args.destino / "fallos.csv"
+    # Un fichero de fallos por año. Con --persona se encadenan varios y un
+    # unico fallos.csv se reescribia al terminar cada uno, borrando los del
+    # anterior; y si el año siguiente no fallaba, el bloque ni se ejecutaba y
+    # los viejos sobrevivian: a veces se perdian y a veces no.
+    fallos_f = args.destino / f"fallos{f'-{args.anio}' if args.anio else ''}.csv"
+    ficheros = []
+
     if args.reintentar:
-        if not fallos_f.exists():
-            print("no hay fallos.csv que reintentar")
+        # Se recogen los de todos los años: lo normal es reclamarlos de una vez
+        # al acabar el reparto, sin acordarse de cual fallo en cual.
+        ficheros = sorted(args.destino.glob("fallos*.csv"))
+        if not ficheros:
+            print(f"no hay ningun fallos*.csv en {args.destino}")
             return 0
-        pendientes = set(pd.read_csv(fallos_f)["uuid"])
+        pendientes = set()
+        for f in ficheros:
+            try:
+                pendientes |= set(pd.read_csv(f)["uuid"])
+            except Exception as e:
+                print(f"  no se pudo leer {f.name}: {type(e).__name__}")
+        print(f"reintentando {len(pendientes):,} fallos de {len(ficheros)} "
+              f"fichero(s): {', '.join(f.name for f in ficheros)}")
         m = m[m["uuid"].isin(pendientes)]
 
     total = len(m)
@@ -118,7 +140,7 @@ def main():
 
     sesion, en_ventana = sesion_nueva(), 0
     abre_ventana = time.monotonic()
-    bajados = cortes = fallidos = 0
+    bajados = cortes = fallidos = seguidos = 0
     bytes_totales = 0
     inicio = time.monotonic()
     fallos = []
@@ -152,9 +174,18 @@ def main():
 
         if cuerpo is None:
             fallidos += 1
+            seguidos += 1
             fallos.append({"uuid": uuid, "url": url, "ruta": str(ruta)})
             print(f"  FALLO {uuid}", flush=True)
+            if seguidos >= CORTE_FALLOS:
+                print(f"\n{CORTE_FALLOS} fallos seguidos: se cayo la conexion o el "
+                      f"portal no responde.\n"
+                      f"  Paro aqui en vez de pasarme la noche sumando fallos.\n"
+                      f"  Relanza el mismo comando cuando vuelva: lo descargado se "
+                      f"conserva y solo pedira lo que falte.", flush=True)
+                break
             continue
+        seguidos = 0
 
         ruta.parent.mkdir(parents=True, exist_ok=True)
         temporal = ruta.with_suffix(".parcial")
@@ -172,6 +203,13 @@ def main():
             print(f"  {i:,}/{len(pendientes):,}  {bajados:,} ok  {fallidos} fallos  "
                   f"{cortes} cortes  {bytes_totales/1e9:.1f} GB  "
                   f"{ritmo*3600:.0f}/h  quedan ~{queda/3600:.1f} h", flush=True)
+
+    # Los listados viejos se retiran despues de correr, no antes: si el filtro
+    # no dejaba nada o el proceso murio, se conservan intactos.
+    if args.reintentar:
+        for f in ficheros:
+            f.unlink(missing_ok=True)
+        fallos_f = args.destino / "fallos-reintento.csv"
 
     if fallos:
         args.destino.mkdir(parents=True, exist_ok=True)
