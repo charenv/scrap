@@ -172,6 +172,18 @@ def procesar(anio, m, solo_md):
         print(f"el año {anio} no tiene documentos en el manifiesto")
         return 1
 
+    # --subido borra los PDFs a proposito. Sin este aviso, un 'lote.py --anio X'
+    # despues de haberlo subido los volveria a descargar enteros: horas de cuota
+    # del portal tiradas y el disco lleno otra vez.
+    if anio in ya_subidos() and not solo_md:
+        print(f"El año {anio} ya esta marcado como subido: sus PDFs se borraron "
+              f"a proposito.")
+        print(f"  Volver a bajarlo son {docs:,} descargas (~{docs/RITMO:.0f} h).")
+        print(f"  Si de verdad quieres rehacerlo, quita su entrada de "
+              f"{estado_path()}.")
+        print(f"  Si solo quieres rehacer el markdown: --anio {anio} --solo-md")
+        return 1
+
     pdfs, mds = BASE / "pdfs", BASE / "markdown"
     estimado = docs * PESO_KB[epoca(anio)] * 1024
     BASE.mkdir(parents=True, exist_ok=True)
