@@ -197,6 +197,8 @@ def main():
     ap.add_argument("--anio", type=int)
     ap.add_argument("--especialidad")
     ap.add_argument("--limite", type=int)
+    ap.add_argument("--rehacer", action="store_true",
+                    help="reconvierte tambien los que ya tienen markdown")
     args = ap.parse_args()
 
     corpus = pd.read_excel(CORPUS, engine="openpyxl")
@@ -207,6 +209,23 @@ def main():
 
     # Solo lo que este descargado.
     corpus = corpus[[(args.pdfs / r).exists() for r in corpus["Archivo PDF"]]]
+
+    # Solo los que no tienen markdown, o cuyo PDF es mas nuevo que el. Reconvertir
+    # el año entero en cada pasada son ~40 minutos con 16 000 documentos, y con
+    # --solo-md se lanza muchas veces mientras la descarga avanza.
+    # La fecha importa por el OCR: ocrmypdf reemplaza el PDF, asi que su markdown
+    # queda viejo y hay que rehacerlo. Compararlas lo detecta solo.
+    if not args.rehacer:
+        antes = len(corpus)
+        pendientes = []
+        for pdf_rel, md_rel in zip(corpus["Archivo PDF"], corpus["Archivo MD"]):
+            md = args.salida / md_rel
+            pendientes.append(
+                not md.exists()
+                or md.stat().st_mtime < (args.pdfs / pdf_rel).stat().st_mtime)
+        corpus = corpus[pendientes]
+        if antes - len(corpus):
+            print(f"  {antes - len(corpus):,} ya convertidos, se saltan")
     if args.limite:
         corpus = corpus.head(args.limite)
     if corpus.empty:
