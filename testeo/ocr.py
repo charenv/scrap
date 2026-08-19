@@ -43,9 +43,10 @@ def faltan_herramientas():
 
 def idiomas():
     try:
-        r = subprocess.run(["tesseract", "--list-langs"],
-                           capture_output=True, text=True, timeout=30)
-        return set(r.stdout.split()[1:])
+        r = subprocess.run(["tesseract", "--list-langs"], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace",
+                           timeout=30)
+        return set((r.stdout or "").split()[1:])
     except Exception:
         return set()
 
@@ -53,9 +54,10 @@ def idiomas():
 def tiene_texto(pdf):
     """True si el PDF ya devuelve texto util: entonces no hay nada que hacer."""
     try:
-        r = subprocess.run(["pdftotext", str(pdf), "-"],
-                           capture_output=True, text=True, timeout=120)
-        return len(r.stdout.strip()) >= MINIMO_TEXTO
+        r = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace",
+                           timeout=120)
+        return len((r.stdout or "").strip()) >= MINIMO_TEXTO
     except Exception:
         return False
 
@@ -67,7 +69,8 @@ def ocr(pdf, idioma, jobs, extra):
              "--jobs", str(jobs), "--optimize", "1", "--quiet", *extra,
              str(pdf), str(temporal)]
     try:
-        r = subprocess.run(orden, capture_output=True, text=True, timeout=1800)
+        r = subprocess.run(orden, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=1800)
     except subprocess.TimeoutExpired:
         temporal.unlink(missing_ok=True)
         return False, "timeout"

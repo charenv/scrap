@@ -94,10 +94,20 @@ MINIMO_TEXTO = 200  # por debajo de esto el PDF es un escaneo sin capa de texto
 
 
 def extraer(pdf):
-    """Texto crudo del PDF, o '' si es un escaneo."""
-    r = subprocess.run(["pdftotext", str(pdf), "-"],
-                       capture_output=True, text=True, timeout=120)
-    return r.stdout if r.returncode == 0 else ""
+    """Texto crudo del PDF, o '' si es un escaneo o no se pudo leer.
+
+    encoding y errors son obligatorios: pdftotext escribe UTF-8, pero en Windows
+    text=True decodifica con la pagina de codigos local (cp1252) y revienta con
+    el primer acento. Ademas el fallo ocurre en el hilo lector, asi que stdout
+    se queda en None y el error aparece mucho despues como un AttributeError.
+    """
+    try:
+        r = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace",
+                           timeout=120)
+    except Exception:
+        return ""
+    return r.stdout or "" if r.returncode == 0 else ""
 
 
 def limpiar(texto):
