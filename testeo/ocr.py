@@ -13,8 +13,10 @@ Reanudable: antes de trabajar comprueba si el PDF ya da texto, asi que relanzarl
 solo toca lo que falta. La escritura es atomica (fichero temporal + rename), de
 modo que un corte a media pagina nunca deja un PDF roto.
 
-Requiere:
-    sudo dnf install ocrmypdf tesseract-langpack-spa
+Requiere ocrmypdf y tesseract con el idioma español:
+    Linux:   sudo dnf install ocrmypdf tesseract-langpack-spa
+    Windows: winget install UB-Mannheim.TesseractOCR && pip install ocrmypdf
+             y spa.traineddata en la carpeta tessdata
 
 Uso:
     python3 ocr.py --pdfs /ruta/pdfs                     # todo lo que falte
@@ -110,13 +112,26 @@ def main():
 
     if faltan := faltan_herramientas():
         print(f"falta{'n' if len(faltan) > 1 else ''}: {', '.join(faltan)}")
-        print("  sudo dnf install ocrmypdf tesseract-langpack-spa")
+        if sys.platform.startswith("win"):
+            print("  winget install UB-Mannheim.TesseractOCR")
+            print("  pip install ocrmypdf")
+            print("  Si ya lo instalaste, es que no esta en el PATH de esta")
+            print("  terminal. Abre una nueva, o para probar ahora mismo:")
+            print('    $env:Path += ";C:\\Program Files\\Tesseract-OCR"')
+        else:
+            print("  sudo dnf install ocrmypdf tesseract-langpack-spa")
         return 1
     disponibles = idiomas()
     if disponibles and args.idioma not in disponibles:
         print(f"tesseract no tiene el idioma '{args.idioma}'. Tiene: "
-              f"{', '.join(sorted(disponibles))}\n"
-              f"  sudo dnf install tesseract-langpack-{args.idioma}")
+              f"{', '.join(sorted(disponibles))}")
+        if sys.platform.startswith("win"):
+            print(f"  Bajate {args.idioma}.traineddata y ponlo en la carpeta "
+                  f"tessdata de Tesseract:")
+            print(f"  https://github.com/tesseract-ocr/tessdata/raw/main/"
+                  f"{args.idioma}.traineddata")
+        else:
+            print(f"  sudo dnf install tesseract-langpack-{args.idioma}")
         return 1
 
     # Enderezar cuesta CPU pero en escaneos de juzgado cambia mucho el resultado:
@@ -130,7 +145,11 @@ def main():
             extra.append("--rotate-pages")
         else:
             print("aviso: sin el modelo 'osd' no se corrige la orientacion.")
-            print("       sudo dnf install tesseract-langpack-osd\n")
+            if sys.platform.startswith("win"):
+                print("       https://github.com/tesseract-ocr/tessdata/raw/"
+                      "main/osd.traineddata -> carpeta tessdata\n")
+            else:
+                print("       sudo dnf install tesseract-langpack-osd\n")
 
     raiz = args.pdfs
     if args.especialidad:
