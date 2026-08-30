@@ -1,4 +1,4 @@
-# khipux — Corte Suprema
+#Corte Suprema
 
 Extrae las resoluciones de la Corte Suprema de
 [jurisprudencia.pj.gob.pe](https://jurisprudencia.pj.gob.pe/jurisprudenciaweb/faces/page/inicio.xhtml)
