@@ -11,7 +11,7 @@
 \usepackage[hidelinks]{hyperref}
 
 % permitir corte de linea en los guiones de \path (nombres de archivo largos)
-\makeatletter\g@addto@macro\UrlBreaks{\do\-}\makeatother
+\makeatletter\g@addto@macro\UrlBreaks{\do\-\do\\}\makeatother
 
 \lstset{basicstyle=\ttfamily\small,breaklines=true,frame=single,
         backgroundcolor=\color{black!4},columns=fullflexible,
@@ -119,7 +119,7 @@ otros \texttt{-Workers} y \texttt{-Jobs} (sección~\ref{sec:paralelo}).
 No conviene probar con \texttt{parte-sola.cmd -Limite 50}: el argumento se pasa a las tres
 tandas y cada una copiaría antes todos sus PDFs al disco local.
 
-\subsection{Paso 2: OCR de todo 2014}
+\subsection{Paso 2: OCR de todo 2014 y conversión a markdown}
 
 \begin{lstlisting}
 parte-sola.cmd
@@ -127,7 +127,9 @@ parte-sola.cmd
 
 El script trabaja en tres tandas, una detrás de otra. En cada una copia sus PDFs al disco
 local, hace el OCR allí en paralelo, devuelve los PDFs al USB y borra la copia local. La
-copia local evita escribir miles de veces en el USB durante el OCR.
+copia local evita escribir miles de veces en el USB durante el OCR. \textbf{Cuando
+terminan las tres tandas convierte solo a markdown}, sin que haya que lanzar nada más (si
+alguna tanda falla, el script se detiene y no convierte).
 
 \begin{center}
 \begin{tabular}{lp{8.2cm}rr}
@@ -158,7 +160,19 @@ ejecutado nunca de principio a fin. Conviene mirar la tanda A hasta que aparezca
 \texttt{Devolviendo penal al USB}, antes de dejar la PC sola.
 
 \paragraph{No desconectar el USB} mientras se ve \texttt{Devolviendo \ldots\ al USB}. Al
-terminar todo aparece \texttt{TERMINADO}.
+terminar todo, incluida la conversión, aparece \texttt{TERMINADO}.
+
+\paragraph{Dónde queda cada cosa.} Todo dentro de \texttt{X:\textbackslash
+corpus-corte-suprema\textbackslash}, en la carpeta de cada especialidad:
+\begin{itemize}
+  \item Los PDFs, con la capa de texto añadida, en el mismo sitio de origen:
+        \path|pdfs\<especialidad>\2014\|.
+  \item El markdown en \path|markdown\<especialidad>\2014\|, con la ruta que indica el
+        manifiesto, igual que los demás años.
+  \item Lo que no se pudo procesar: \path|pdfs\fallos-ocr.csv| (el OCR falló)
+        y \path|markdown\necesitan-ocr-2014.csv| (siguen sin texto tras el
+        OCR). Si el segundo está vacío o no tiene filas, quedó todo convertido.
+\end{itemize}
 
 \subsection{Si se corta}
 
@@ -166,9 +180,10 @@ Un apagón o una ventana cerrada no estropean los PDFs: la escritura es atómica
 temporal y renombrado). Basta lanzar \emph{exactamente} el mismo comando. Cada PDF que ya
 tiene texto se salta.
 
-\subsection{Paso 3: convertir a markdown}
+\subsection{Conversión a markdown por separado}
 
-Con todo el OCR hecho:
+\texttt{parte-sola.cmd} ya la hace al final. Solo hace falta lanzarla a mano si falló o
+si se quiere repetir (por ejemplo, tras corregir PDFs en otra PC):
 \begin{lstlisting}
 ocr-lab.cmd -Convertir
 \end{lstlisting}
@@ -256,7 +271,8 @@ entrenar.
 \section{Después del OCR}
 
 \begin{enumerate}
-  \item \texttt{ocr-lab.cmd -Convertir} (arriba) genera el markdown de 2014.
+  \item El markdown de 2014 ya lo genera \path{parte-sola.cmd} al final; revisar
+        \path{necesitan-ocr-2014.csv} como se indica arriba.
   \item Subir a Drive \texttt{pdfs/*/2014/} y \texttt{markdown/*/2014/}, y luego marcar el
         año como subido con \texttt{lote.py --subido 2014}, según el flujo descrito en
         \texttt{testeo/README.md}. Esa orden borra los PDFs y conserva el markdown.
@@ -286,7 +302,22 @@ Se modificó \texttt{testeo/ocr.py}:
 
 Los \texttt{.cmd} son solo atajos: llaman a PowerShell y a Python. Hay tres niveles de
 respaldo, para probar en orden desde la misma consola en \texttt{X:\textbackslash
-ocr-offline}.
+ocr-offline}. Se pasa al siguiente nivel solo cuando el anterior da un error de bloqueo
+(por ejemplo, \emph{la ejecución de scripts está deshabilitada} o \emph{el administrador
+ha bloqueado esta aplicación}), no cuando falla el OCR en sí.
+
+\begin{center}
+\begin{tabular}{lp{4.6cm}p{5.6cm}}
+\toprule
+Nivel & Cuándo & Cómo se lanza \\
+\midrule
+0 & Funciona todo & \texttt{parte-sola.cmd} \\
+1 & El \texttt{.cmd} no, PowerShell sí & \texttt{powershell \ldots\ -File .ps1} \\
+2 & PowerShell tampoco & \texttt{python.exe ocr-lab.py} \\
+3 & Nada desde el USB & Copiar el kit al disco local y repetir 1 o 2 \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 \paragraph{Nivel 1: PowerShell funciona, el \texttt{.cmd} no.}
 \begin{lstlisting}
@@ -296,7 +327,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\ocr-parte.ps1 -Limpiar -Es
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ocr-parte.ps1 -Limpiar -Especialidad revision-de-procedimiento-coactivo,contencioso-administrativo,civil,laboral,constitucional,familia-civil,comercial,familia-tutelar,familia-penal
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ocr-lab.ps1 -Convertir
 \end{lstlisting}
-Las tres líneas con \texttt{ocr-parte.ps1} son las tres tandas de \texttt{parte-sola.cmd}.
+Las tres líneas con \texttt{ocr-parte.ps1} son las tres tandas de \texttt{parte-sola.cmd},
+y la última genera el markdown. Aquí la conversión \emph{no} se lanza sola: hay que ejecutar
+esa última línea cuando terminen las tres tandas.
 
 \paragraph{Nivel 2: PowerShell también está bloqueado.} Se usa el Python portátil
 directamente, con el lanzador \texttt{ocr-lab.py}, que hace lo mismo sin \texttt{.cmd} ni
@@ -305,10 +338,14 @@ directamente, con el lanzador \texttt{ocr-lab.py}, que hace lo mismo sin \texttt
 portable\python\python.exe ocr-lab.py --simular --todo
 portable\python\python.exe ocr-lab.py --limite 50 --especialidad civil
 portable\python\python.exe ocr-lab.py --todo
-portable\python\python.exe ocr-lab.py --convertir
 \end{lstlisting}
-\texttt{--simular} solo muestra los pasos sin ejecutarlos. Admite también
-\texttt{--local D:\textbackslash ocr}, \texttt{--workers} y \texttt{--jobs}.
+\begin{sloppypar}
+\texttt{--todo} hace las tres tandas y, al terminar, \textbf{convierte solo a markdown}, igual
+que \path{parte-sola.cmd}. Con \texttt{--sin-convertir} se detiene tras el OCR, y la
+conversión se lanza aparte con \texttt{ocr-lab.py --convertir}. \texttt{--simular} solo
+muestra los pasos sin ejecutarlos. Admite también \texttt{--local D:\textbackslash ocr},
+\texttt{--workers} y \texttt{--jobs}.
+\end{sloppypar}
 
 \paragraph{Nivel 3: no deja ejecutar nada desde el USB.} Copiar \texttt{X:\textbackslash
 ocr-offline} a \texttt{C:\textbackslash ocr-offline} y repetir los niveles 1 o 2 desde
@@ -317,8 +354,17 @@ programas en carpetas de usuario por política del laboratorio. Eso no se resuel
 aquí: hay que pedir al encargado que permita ejecutar Python y Tesseract desde el USB, o
 usar otra PC. No conviene intentar saltarse la política.
 
+\paragraph{El resultado es el mismo en todos los niveles.}\sloppy Los PDFs con texto quedan en
+\path|pdfs\<especialidad>\2014\|, el markdown en \path|markdown\<especialidad>\2014\|,
+y los fallos en \path|pdfs\fallos-ocr.csv| y \path|markdown\necesitan-ocr-2014.csv|.
+El log queda en \path{ocr-lab-2014-NOMBREPC.log}. En todos los niveles, si se corta, se
+repite el mismo comando y se reanuda.
+
 \paragraph{Estado de la prueba.} \texttt{ocr-lab.py} compila y su modo \texttt{--simular}
-muestra los pasos correctos, pero el lanzador no se ha ejecutado con OCR real.
+muestra los pasos correctos, incluida la conversión final. El flujo de \texttt{parte-sola.cmd}
+se comprobó con PowerShell sustituido por un \texttt{echo}: ejecuta las tres tandas y luego
+la conversión, y se detiene sin convertir si una tanda falla. Ninguno de los dos
+lanzadores se ha ejecutado con OCR real.
 
 %--------------------------------------------------------------------
 \section{Qué no se ha probado}
