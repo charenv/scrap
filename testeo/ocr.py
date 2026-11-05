@@ -26,10 +26,12 @@ Uso:
 
 import argparse
 import csv
+import os
 import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 MINIMO_TEXTO = 200  # mismos umbrales que a_markdown.py, para no discrepar
@@ -40,7 +42,11 @@ CODIGOS_OK = {0, 6}
 
 def faltan_herramientas():
     """ocrmypdf sin tesseract se ejecuta pero no reconoce nada: hacen falta las dos."""
-    return [b for b in ("ocrmypdf", "tesseract") if shutil.which(b) is None]
+    import importlib.util
+    faltan = [b for b in ("tesseract",) if shutil.which(b) is None]
+    if importlib.util.find_spec("ocrmypdf") is None:
+        faltan.insert(0, "ocrmypdf")
+    return faltan
 
 
 def idiomas():
@@ -67,12 +73,17 @@ def tiene_texto(pdf):
 def ocr(pdf, idioma, jobs, extra):
     """Añade la capa de texto sobre el propio PDF. (ok, motivo)."""
     temporal = pdf.with_suffix(".ocr.tmp")
-    orden = ["ocrmypdf", "--skip-text", "--language", idioma,
-             "--jobs", str(jobs), "--optimize", "1", "--quiet", *extra,
+    orden = [sys.executable, "-m", "ocrmypdf", "--skip-text", "--language", idioma,
+             "--jobs", str(jobs), "--optimize", "1", "--quiet",
+             "--output-type", "pdf", *extra,
              str(pdf), str(temporal)]
+    # Con varios documentos a la vez, que tesseract no abra ademas sus propios
+    # hilos: sin esto 12 documentos x 2 jobs x N hilos saturan la maquina.
+    entorno = {**os.environ, "OMP_THREAD_LIMIT": "1"}
     try:
         r = subprocess.run(orden, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=1800)
+                           encoding="utf-8", errors="replace", timeout=1800,
+                           env=entorno)
     except subprocess.TimeoutExpired:
         temporal.unlink(missing_ok=True)
         return False, "timeout"
@@ -105,6 +116,10 @@ def main():
     ap.add_argument("--especialidad", help="slug de la carpeta, p.ej. penal")
     ap.add_argument("--idioma", default="spa")
     ap.add_argument("--jobs", type=int, default=4, help="hilos por documento")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="documentos en paralelo. Con muchos nucleos rinde mas "
+                         "subir esto que --jobs: casi todos los PDFs tienen pocas "
+                         "paginas. Referencia: workers x jobs = nucleos")
     ap.add_argument("--limite", type=int)
     ap.add_argument("--sin-enderezar", action="store_true",
                     help="mas rapido, peor con escaneos torcidos")
@@ -164,7 +179,11 @@ def main():
         return 1
 
     print(f"revisando {len(candidatos):,} PDFs en {raiz}")
-    pendientes = [p for p in candidatos if not tiene_texto(p)]
+    # pdftotext pasa la mayor parte del rato esperando al disco: se puede mirar
+    # mucho mas de un PDF a la vez sin gastar nucleos.
+    with ThreadPoolExecutor(max_workers=min(32, (os.cpu_count() or 4) * 2)) as ex:
+        con_texto = list(ex.map(tiene_texto, candidatos))
+    pendientes = [p for p, ya in zip(candidatos, con_texto) if not ya]
     print(f"  ya tienen texto : {len(candidatos) - len(pendientes):,}")
     print(f"  necesitan OCR   : {len(pendientes):,}")
     if not pendientes:
@@ -173,14 +192,25 @@ def main():
     if args.limite:
         pendientes = pendientes[: args.limite]
 
-    print(f"  idioma {args.idioma} | {args.jobs} hilos"
+    print(f"  idioma {args.idioma} | {args.workers} documentos x {args.jobs} hilos"
           f" | {' '.join(x.lstrip('-') for x in extra) or 'sin retoques'}\n")
 
+    inicio = time.monotonic()
+
+    def trabajo(pdf):
+        return pdf, *ocr(pdf, args.idioma, args.jobs, extra)
+
+    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+        futuros = [pool.submit(trabajo, pdf) for pdf in pendientes]
+        terminados = (f.result() for f in as_completed(futuros))
+        _bucle_resultados(terminados, pendientes, args, inicio)
+    return 0
+
+
+def _bucle_resultados(terminados, pendientes, args, inicio):
     hechos = fallidos = 0
     fallos = []
-    inicio = time.monotonic()
-    for i, pdf in enumerate(pendientes, start=1):
-        ok, motivo = ocr(pdf, args.idioma, args.jobs, extra)
+    for i, (pdf, ok, motivo) in enumerate(terminados, start=1):
         if ok:
             hechos += 1
         else:
