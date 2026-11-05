@@ -1,0 +1,337 @@
+﻿\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-tabla]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+
+% permitir corte de linea en los guiones de \path (nombres de archivo largos)
+\makeatletter\g@addto@macro\UrlBreaks{\do\-}\makeatother
+
+\lstset{basicstyle=\ttfamily\small,breaklines=true,frame=single,
+        backgroundcolor=\color{black!4},columns=fullflexible,
+        literate={á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1 {ñ}{{\~n}}1 {Á}{{\'A}}1 {Í}{{\'I}}1}
+
+\title{OCR de 2014 en una sola PC del laboratorio:\\ directorios, comandos y qué esperar}
+\author{}
+\date{5 de noviembre de 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Guía para ejecutar el OCR de los escaneos de 2014 en una única PC del laboratorio, sin
+privilegios de administrador y sin internet. Todo lo necesario viaja en el USB: el
+intérprete de Python, Tesseract con el idioma español y poppler son portátiles y se
+ejecutan desde allí. El documento fija el directorio de trabajo, los comandos en orden, el
+paralelismo para equipos con muchos núcleos, cómo comprobar el resultado y qué partes no
+se han probado todavía.
+\end{abstract}
+
+\tableofcontents
+
+%--------------------------------------------------------------------
+\section{Punto de partida}
+
+Los PDFs de 2014 están descargados completos y casi todos son fotografías de la
+resolución sin capa de texto, así que \texttt{pdftotext} no devuelve nada y no pueden
+convertirse a markdown hasta pasarles OCR.
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Concepto & Cantidad \\
+\midrule
+PDFs de 2014 en el manifiesto y en el USB & 11\,473 \\
+Con texto de origen (ya convertidos a markdown) & 70 \\
+Sin texto, que necesitan OCR & 11\,403 \\
+Con OCR hecho durante las pruebas del 4--5 de nov.\ & 65 \\
+\textbf{Pendientes aproximados} & \textbf{11\,338} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+El manifiesto (\path{manifiesto-pdfs.csv}) y el Excel limpio
+(\path{todo-corte-suprema-completo-limpio.xlsx}) tienen 209\,180 filas cada uno y
+coinciden con los PDFs de 2014 que hay en el USB. Se copiaron al USB y su copia es
+idéntica a la original.
+
+%--------------------------------------------------------------------
+\section{Qué hay en el USB}
+
+En esta guía \texttt{X:} es la letra que Windows asigne al USB en esa PC; se ve en el
+Explorador de archivos.
+
+\begin{lstlisting}
+X:\
+|-- ocr-offline\                   <-- directorio de trabajo
+|   |-- parte-sola.cmd             todo 2014 en 3 tandas (el que se usa)
+|   |-- ocr-lab.cmd                OCR directo sobre una carpeta, y -Convertir
+|   |-- ocr-parte.ps1, ocr-lab.ps1 los scripts que lanzan los .cmd
+|   |-- COMANDOS.txt               esta misma lista, en texto plano
+|   |-- portable\                  Python, Tesseract (spa), poppler
+|   |-- wheels\                    paquetes de Python, para reconstruir
+|   `-- instaladores\              copias de los instaladores originales
+|-- SCRAP\testeo\                  ocr.py, a_markdown.py y el resto del codigo
+`-- corpus-corte-suprema\
+    |-- pdfs\<especialidad>\2014\  los PDFs
+    |-- markdown\                  markdown ya generado
+    |-- manifiesto-pdfs.csv
+    `-- todo-corte-suprema-completo-limpio.xlsx
+\end{lstlisting}
+
+\paragraph{No se instala nada.} Los \texttt{.cmd} llaman a PowerShell con
+\texttt{-ExecutionPolicy Bypass} solo para ese proceso, y los scripts añaden Tesseract y
+poppler al \texttt{PATH} únicamente de esa ventana. Al cerrarla no queda nada cambiado en
+la PC.
+
+%--------------------------------------------------------------------
+\section{Procedimiento}
+
+\subsection{Directorio donde entrar}
+
+Siempre el mismo:
+\begin{lstlisting}
+X:\ocr-offline
+\end{lstlisting}
+Forma rápida: abrir esa carpeta en el Explorador, hacer clic en la barra de direcciones,
+escribir \texttt{cmd} y pulsar Enter. Por consola: \texttt{X:} y luego
+\texttt{cd \textbackslash ocr-offline}.
+
+\subsection{Paso 1: prueba con 50 PDFs}
+
+Se hace una vez, para comprobar que la PC deja ejecutar todo desde el USB y para medir
+la velocidad real de esa máquina. Se hace directamente sobre el USB y sobre una sola
+especialidad pequeña (civil, 820 PDFs), sin copiar nada al disco local:
+\begin{lstlisting}
+ocr-lab.cmd -Limite 50 -Especialidad civil
+\end{lstlisting}
+Debe terminar con \texttt{OCR hecho en 50 PDFs, 0 fallos}. El log imprime \texttt{s/doc},
+los segundos efectivos por documento; con ese número se estima el total
+(sección~\ref{sec:tiempos}). Para comparar configuraciones basta repetir el comando con
+otros \texttt{-Workers} y \texttt{-Jobs} (sección~\ref{sec:paralelo}).
+
+No conviene probar con \texttt{parte-sola.cmd -Limite 50}: el argumento se pasa a las tres
+tandas y cada una copiaría antes todos sus PDFs al disco local.
+
+\subsection{Paso 2: OCR de todo 2014}
+
+\begin{lstlisting}
+parte-sola.cmd
+\end{lstlisting}
+
+El script trabaja en tres tandas, una detrás de otra. En cada una copia sus PDFs al disco
+local, hace el OCR allí en paralelo, devuelve los PDFs al USB y borra la copia local. La
+copia local evita escribir miles de veces en el USB durante el OCR.
+
+\begin{center}
+\begin{tabular}{lp{8.2cm}rr}
+\toprule
+Tanda & Especialidades & PDFs & Tamaño \\
+\midrule
+A & penal & 3\,586 & 7,1 GB \\
+B & contencioso administrativo laboral y contencioso administrativo previsional
+    & 3\,895 & 12,1 GB \\
+C & revisión de procedimiento coactivo, contencioso administrativo, civil, laboral,
+    constitucional, familia civil, comercial, familia tutelar y familia penal
+    & 3\,992 & 11,8 GB \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Espacio en disco.} Se necesita en el disco local al menos el tamaño de la
+tanda más grande, \textbf{12,1 GB}, más un margen. El script comprueba el espacio libre
+antes de copiar y se detiene con un mensaje si no alcanza. En ese caso, usar otro disco:
+\begin{lstlisting}
+parte-sola.cmd -Local D:\ocr
+\end{lstlisting}
+El USB tenía 21,8 GB libres al preparar el kit; el OCR reescribe los PDFs con un tamaño
+casi igual (un PDF de 6 páginas creció un 1,4\%), así que no debería agotarlo.
+
+\paragraph{Vigilar los primeros minutos.} El ciclo copiar, procesar y devolver no se ha
+ejecutado nunca de principio a fin. Conviene mirar la tanda A hasta que aparezca el primer
+\texttt{Devolviendo penal al USB}, antes de dejar la PC sola.
+
+\paragraph{No desconectar el USB} mientras se ve \texttt{Devolviendo \ldots\ al USB}. Al
+terminar todo aparece \texttt{TERMINADO}.
+
+\subsection{Si se corta}
+
+Un apagón o una ventana cerrada no estropean los PDFs: la escritura es atómica (archivo
+temporal y renombrado). Basta lanzar \emph{exactamente} el mismo comando. Cada PDF que ya
+tiene texto se salta.
+
+\subsection{Paso 3: convertir a markdown}
+
+Con todo el OCR hecho:
+\begin{lstlisting}
+ocr-lab.cmd -Convertir
+\end{lstlisting}
+Esto ejecuta \texttt{a\_markdown.py} para 2014 con el manifiesto y el Excel del USB y deja
+el resultado en \texttt{X:\textbackslash corpus-corte-suprema\textbackslash markdown\textbackslash}.
+El script detecta por fecha qué PDFs son más nuevos que su markdown y solo rehace esos.
+
+%--------------------------------------------------------------------
+\section{Paralelismo}\label{sec:paralelo}
+
+Con muchos núcleos rinde más procesar varios documentos a la vez que repartir las
+páginas de uno solo, porque la mayoría de los PDFs tiene pocas páginas (unas 7 a 10 de
+media en las muestras medidas). El OCR se parametriza con dos números:
+
+\begin{center}
+\begin{tabular}{lp{9cm}}
+\toprule
+Parámetro & Significado \\
+\midrule
+\texttt{-Workers} & Documentos procesados a la vez. Por defecto: núcleos/2, máximo 16. \\
+\texttt{-Jobs} & Hilos por documento. Por defecto: núcleos/\texttt{Workers}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+En una PC de 24 núcleos el valor automático es de 12 documentos a la vez con 2 hilos cada
+uno. Además, Tesseract se limita a un hilo por proceso (\texttt{OMP\_THREAD\_LIMIT=1}),
+para que los procesos no compitan entre sí, y la revisión previa de qué PDFs ya tienen
+texto también se hace en paralelo.
+
+Cada documento en curso usa del orden de 0,5 a 1 GB de memoria. Si la PC se queda sin
+RAM, bajar \texttt{-Workers}. Los parámetros se añaden al final de cualquier comando:
+\begin{lstlisting}
+parte-sola.cmd -Workers 12 -Jobs 2
+parte-sola.cmd -Workers 6
+parte-sola.cmd -Workers 1 -Jobs 24
+\end{lstlisting}
+La última línea es el modo anterior: un documento cada vez con todos los hilos. En la
+prueba de 50 conviene comparar el \texttt{s/doc} de dos configuraciones y quedarse con la
+mejor.
+
+%--------------------------------------------------------------------
+\section{Cuánto tardará}\label{sec:tiempos}
+
+\paragraph{Lo medido.} En la PC de casa (4 núcleos), con un documento a la vez y 4 hilos,
+50 PDFs de civil (520 páginas) tardaron unos 21 s por documento, es decir, unos 2,0 s por
+página. Con esa velocidad, los 11\,338 pendientes serían unas 66 horas.
+
+\paragraph{Lo que no se ha medido.} En la máquina de 24 núcleos no se ha ejecutado nada. Si
+el rendimiento escalara linealmente con los núcleos, serían del orden de 11 horas, pero eso
+es una cota optimista: el disco, la memoria y el propio Tesseract no escalan perfectamente.
+Un intento de comparar en la PC de casa 4 documentos en paralelo contra uno solo salió peor
+(4,0 contra 2,0 s por página), pero se hizo con documentos distintos, sobre un equipo
+pequeño y con dos hilos reales, así que no permite concluir nada sobre el laboratorio. La
+cifra útil saldrá de la prueba con 50 PDFs en la propia máquina.
+
+\paragraph{Revisión previa.} Antes de empezar cada tanda, \texttt{ocr.py} recorre sus PDFs
+para ver cuáles ya tienen texto. En la PC de casa, con la versión secuencial, recorrer
+los 11\,473 de 2014 tardó unos 30 minutos; ahora se hace en paralelo y debería ser bastante
+menos, pero no se ha medido sobre el conjunto completo.
+
+%--------------------------------------------------------------------
+\section{Comprobar el resultado}
+
+\begin{itemize}
+  \item El log queda en \texttt{X:\textbackslash corpus-corte-suprema\textbackslash
+        ocr-lab-2014-NOMBREPC.log} y cada tanda debe terminar con \texttt{0 fallos}.
+  \item Si algún PDF falla, aparece en
+        \texttt{X:\textbackslash corpus-corte-suprema\textbackslash pdfs\textbackslash
+        fallos-ocr.csv} con el motivo.
+  \item \texttt{ocr.py} da por bueno un PDF solo si el resultado devuelve al menos 200
+        caracteres con \texttt{pdftotext}; si no, conserva el original.
+  \item Para saber qué queda pendiente basta lanzar \texttt{ocr-lab.cmd}: recorre los PDFs
+        del USB e imprime \texttt{necesitan OCR}; si es cero, imprime \texttt{nada que
+        hacer}. Si no es cero, empieza a procesarlos directamente en el USB.
+\end{itemize}
+
+En la prueba de 50 PDFs del 4 de noviembre, los 50 quedaron con texto: el menor con 2\,902
+caracteres, la mediana con 21\,168 y el mayor con 94\,607. El texto es legible, pero en
+los encabezados el OCR deja frases desordenadas o con errores (por ejemplo, un membrete
+partido en columnas). Conviene revisar a mano unos cuantos markdown antes de usarlos para
+entrenar.
+
+%--------------------------------------------------------------------
+\section{Después del OCR}
+
+\begin{enumerate}
+  \item \texttt{ocr-lab.cmd -Convertir} (arriba) genera el markdown de 2014.
+  \item Subir a Drive \texttt{pdfs/*/2014/} y \texttt{markdown/*/2014/}, y luego marcar el
+        año como subido con \texttt{lote.py --subido 2014}, según el flujo descrito en
+        \texttt{testeo/README.md}. Esa orden borra los PDFs y conserva el markdown.
+  \item Recordatorio: \texttt{estado.json} aún no marca 2014 como subido.
+\end{enumerate}
+
+%--------------------------------------------------------------------
+\section{Cambios en el código}
+
+Se modificó \texttt{testeo/ocr.py}:
+
+\begin{itemize}
+  \item \texttt{--output-type pdf}: no hace falta Ghostscript, que no se pudo instalar sin
+        administrador. El PDF/A no se necesita para este corpus.
+  \item Llama a \texttt{python -m ocrmypdf} en vez del ejecutable \texttt{ocrmypdf}, que
+        solo existe con una instalación normal de pip. Así funciona con el Python portátil.
+  \item Nuevo \texttt{--workers}: varios documentos en paralelo. Con el valor por defecto,
+        1, se comporta como antes.
+  \item La revisión previa de qué PDFs tienen texto se hace con hilos.
+  \item Se corrigió un error que ya existía: combinar \texttt{--especialidad} con
+        \texttt{--anio} no encontraba ningún PDF, porque el patrón buscaba un nivel de
+        carpetas de más.
+\end{itemize}
+
+%--------------------------------------------------------------------
+\section{Si el laboratorio no deja ejecutar los \texttt{.cmd}}
+
+Los \texttt{.cmd} son solo atajos: llaman a PowerShell y a Python. Hay tres niveles de
+respaldo, para probar en orden desde la misma consola en \texttt{X:\textbackslash
+ocr-offline}.
+
+\paragraph{Nivel 1: PowerShell funciona, el \texttt{.cmd} no.}
+\begin{lstlisting}
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ocr-lab.ps1 -Limite 50 -Especialidad civil
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ocr-parte.ps1 -Limpiar -Especialidad penal
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ocr-parte.ps1 -Limpiar -Especialidad contencioso-adm-laboral,contencioso-adm-previsional
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ocr-parte.ps1 -Limpiar -Especialidad revision-de-procedimiento-coactivo,contencioso-administrativo,civil,laboral,constitucional,familia-civil,comercial,familia-tutelar,familia-penal
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ocr-lab.ps1 -Convertir
+\end{lstlisting}
+Las tres líneas con \texttt{ocr-parte.ps1} son las tres tandas de \texttt{parte-sola.cmd}.
+
+\paragraph{Nivel 2: PowerShell también está bloqueado.} Se usa el Python portátil
+directamente, con el lanzador \texttt{ocr-lab.py}, que hace lo mismo sin \texttt{.cmd} ni
+\texttt{.ps1}:
+\begin{lstlisting}
+portable\python\python.exe ocr-lab.py --simular --todo
+portable\python\python.exe ocr-lab.py --limite 50 --especialidad civil
+portable\python\python.exe ocr-lab.py --todo
+portable\python\python.exe ocr-lab.py --convertir
+\end{lstlisting}
+\texttt{--simular} solo muestra los pasos sin ejecutarlos. Admite también
+\texttt{--local D:\textbackslash ocr}, \texttt{--workers} y \texttt{--jobs}.
+
+\paragraph{Nivel 3: no deja ejecutar nada desde el USB.} Copiar \texttt{X:\textbackslash
+ocr-offline} a \texttt{C:\textbackslash ocr-offline} y repetir los niveles 1 o 2 desde
+allí; los datos se siguen leyendo de \texttt{X:}. Si tampoco funciona, la PC bloquea
+programas en carpetas de usuario por política del laboratorio. Eso no se resuelve desde
+aquí: hay que pedir al encargado que permita ejecutar Python y Tesseract desde el USB, o
+usar otra PC. No conviene intentar saltarse la política.
+
+\paragraph{Estado de la prueba.} \texttt{ocr-lab.py} compila y su modo \texttt{--simular}
+muestra los pasos correctos, pero el lanzador no se ha ejecutado con OCR real.
+
+%--------------------------------------------------------------------
+\section{Qué no se ha probado}
+
+\begin{itemize}
+  \item El kit solo se ha ejecutado en la PC de casa. En el laboratorio puede haber
+        bloqueos de seguridad que impidan ejecutar programas desde el USB. En ese caso,
+        copiar \texttt{X:\textbackslash ocr-offline} a \texttt{C:\textbackslash
+        ocr-offline} y lanzar desde allí; los datos se siguen leyendo de \texttt{X:}.
+  \item El paralelismo con muchos núcleos y el ciclo completo de copiar, hacer OCR,
+        devolver y borrar la copia local no se han ejecutado de principio a fin. Por eso
+        la prueba de 50 va primero y la tanda A se vigila al inicio.
+  \item Se asume Windows de 64 bits; los paquetes de Python incluidos son para Python 3.13.
+\end{itemize}
+
+\end{document}
