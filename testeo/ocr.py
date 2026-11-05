@@ -169,11 +169,10 @@ def main():
     raiz = args.pdfs
     if args.especialidad:
         raiz = raiz / args.especialidad
-    patron = f"*/{args.anio}/*.pdf" if args.anio else "*.pdf"
-    candidatos = sorted(raiz.rglob(patron) if args.anio else raiz.rglob("*.pdf"))
-    if args.anio and not args.especialidad:
-        candidatos = [p for p in sorted(raiz.rglob("*.pdf"))
-                      if p.parent.name == str(args.anio)]
+    # El año es la carpeta que contiene el PDF, con o sin --especialidad: el
+    # patron "*/AAAA/*.pdf" fallaba al colgar ya de pdfs/<especialidad>.
+    candidatos = [p for p in sorted(raiz.rglob("*.pdf"))
+                  if not args.anio or p.parent.name == str(args.anio)]
     if not candidatos:
         print(f"no hay PDFs en {raiz} con ese filtro")
         return 1
